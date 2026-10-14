@@ -364,6 +364,35 @@ body {
 .dim { color: var(--muted); }
 .rail-foot code { font-size: 12px; background: rgba(0,0,0,0.06); padding: 0 5px; border-radius: 4px; }
 
+.support-banner {
+  border-top: 1px solid var(--line);
+  background: var(--wash);
+  padding: 18px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  text-align: center;
+}
+.support-text {
+  font-family: var(--serif-display);
+  font-size: 16.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.btn.coffee {
+  background: #ffdd00;
+  color: var(--ink);
+  padding: 9px 18px;
+  font-size: 14.5px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn.coffee:hover { background: #f2d200; }
+
 .footer {
   border-top: 1px solid var(--line);
   padding: 16px 24px 22px;
