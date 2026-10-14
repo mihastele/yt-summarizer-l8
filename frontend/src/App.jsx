@@ -9,6 +9,7 @@ const LENGTHS = [
   { value: 'quick', label: 'Quick', hint: 'Under 150 words' },
   { value: 'medium', label: 'Mid-length', hint: '≈ 350 words' },
   { value: 'long', label: 'Long', hint: '≈ 800 words' },
+  { value: 'extended', label: 'Extended', hint: '≈ 1400 words' },
 ];
 
 function lengthLabel(value) {
@@ -469,6 +470,7 @@ export default function App() {
                 <option value="quick">Quick</option>
                 <option value="medium">Mid-length</option>
                 <option value="long">Long</option>
+                <option value="extended">Extended</option>
               </select>
             </div>
           ) : (

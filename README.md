@@ -1,6 +1,6 @@
 # Recap — YouTube Summarizer
 
-Paste a YouTube link, pick Quick / Mid-length / Long, get a faithful Markdown summary.
+Paste a YouTube link, pick Quick / Mid-length / Long / Extended, get a faithful Markdown summary.
 Summaries are stored in SQLite keyed by **canonical URL + length**, reused instantly on
 repeat requests, and versioned (up to a configurable limit) when you hit **Regenerate**.
 
@@ -137,7 +137,8 @@ admin can delete summaries or browse/search/filter beyond the 5 most recent.
 Change `ADMIN_PASSWORD` from the `changeme` default before exposing the app;
 the backend logs a warning on startup while the default is in place.
 
-Lengths: `quick` (<150 words), `medium`/`mid` (≈350 words), `long` (≈800 words).
+Lengths: `quick` (<150 words), `medium`/`mid` (≈350 words), `long` (≈800 words),
+`extended`/`xl` (≈1200-1600 words).
 
 ## Configuration (`.env`)
 

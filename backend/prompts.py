@@ -1,9 +1,9 @@
 """Length-specific prompts and token budgets."""
 from __future__ import annotations
 
-LENGTHS = ("quick", "medium", "long")
+LENGTHS = ("quick", "medium", "long", "extended")
 
-ALIASES = {"mid": "medium", "middle": "medium", "short": "quick", "detailed": "long"}
+ALIASES = {"mid": "medium", "middle": "medium", "short": "quick", "detailed": "long", "xl": "extended"}
 
 
 def normalize_length(value: str) -> str:
@@ -14,7 +14,7 @@ def normalize_length(value: str) -> str:
     return v
 
 
-MAX_TOKENS = {"quick": 600, "medium": 1400, "long": 2600}
+MAX_TOKENS = {"quick": 600, "medium": 1400, "long": 2600, "extended": 5200}
 
 SYSTEM = (
     "You summarize YouTube videos from their captions. Be faithful to the transcript: "
@@ -37,6 +37,14 @@ PROMPTS = {
         "Format: an overview paragraph, then detailed sections with bold headings following "
         "the video's structure, including key arguments, examples, data points, and nuance. "
         "Close with 'Key takeaways' as 4-6 bullets."
+    ),
+    "extended": (
+        "Write a comprehensive extended summary of about 1200-1600 words.\n"
+        "Format: an overview of 2-3 paragraphs capturing the full arc of the video, then "
+        "in-depth sections with bold headings following the video's structure. Cover every "
+        "major point with its supporting arguments, examples, stories, data points, and "
+        "counterpoints — a reader should be able to skip the video entirely. "
+        "Close with 'Key takeaways' as 6-8 bullets."
     ),
 }
 
