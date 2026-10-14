@@ -77,6 +77,21 @@ The backend speaks plain OpenAI-compatible chat completions, so Ollama works wit
 3. **The model must be pulled.** `ollama pull gemma3:12b`, and set `OPENAI_MODEL`
    to exactly what `ollama list` shows. Leave `OPENAI_API_KEY` empty — no key needed.
 
+### Ollama Cloud (hosted, no local server)
+
+Point at the hosted endpoint instead — this works the same from compose and local dev:
+
+```bash
+LLM_PROVIDER=openai
+OPENAI_API_URL=https://ollama.com/v1
+OPENAI_API_KEY=<key from your ollama.com account>
+OPENAI_MODEL=gpt-oss:120b   # any cloud model id
+```
+
+Transient hiccups (empty or cut-off completions) are retried automatically, up to
+3 attempts per summary; persistent failures return a 502 whose detail names the
+cause — also visible in `docker compose logs`.
+
 ## How reuse works
 
 1. The backend canonicalizes any YouTube URL (`watch?v=`, `youtu.be`, `/shorts/`, `/embed/`, `/live/`)
