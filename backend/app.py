@@ -207,11 +207,14 @@ async def summarize(req: SummarizeRequest) -> SummarizeResponse:
             text = await complete_anthropic(
                 api_url=settings.active_api_url, api_key=settings.active_api_key,
                 model=settings.active_model, prompt=prompt, length=length,
+                temperature=settings.llm_temperature,
             )
         else:
             text = await complete_openai(
                 api_url=settings.active_api_url, api_key=settings.active_api_key,
                 model=settings.active_model, prompt=prompt, length=length,
+                temperature=settings.llm_temperature,
+                reasoning_effort=settings.llm_reasoning_effort or None,
             )
     except LLMError as exc:
         logger.warning("LLM request failed (%s %s): %s", settings.llm_provider, settings.active_model, exc)

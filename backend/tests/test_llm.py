@@ -112,6 +112,31 @@ class ParseOpenAIContentTests(unittest.TestCase):
         with self.assertRaises(LLMError):
             parse_openai_content([], "[]")
 
+    def test_think_blocks_stripped_from_content(self):
+        body = _openai_body("<think>internal reasoning</think>  Real summary  ")
+        content, stop = parse_openai_content(body, json.dumps(body))
+        self.assertEqual((content, stop), ("Real summary", "stop"))
+
+    def test_think_only_content_is_empty_for_retry(self):
+        body = _openai_body("<thinking>hmm</thinking>")
+        content, _ = parse_openai_content(body, json.dumps(body))
+        self.assertEqual(content, "")
+
+    def test_reasoning_content_fallback_when_content_empty(self):
+        body = {"choices": [{"message": {"content": "", "reasoning_content": "Recovered"}, "finish_reason": "stop"}]}
+        content, _ = parse_openai_content(body, json.dumps(body))
+        self.assertEqual(content, "Recovered")
+
+    def test_reasoning_field_fallback_when_content_empty(self):
+        body = {"choices": [{"message": {"content": None, "reasoning": "Recovered"}, "finish_reason": "stop"}]}
+        content, _ = parse_openai_content(body, json.dumps(body))
+        self.assertEqual(content, "Recovered")
+
+    def test_list_content_blocks_joined(self):
+        body = {"choices": [{"message": {"content": [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]}, "finish_reason": "stop"}]}
+        content, _ = parse_openai_content(body, json.dumps(body))
+        self.assertEqual(content, "a\nb")
+
 
 class ParseAnthropicContentTests(unittest.TestCase):
     def test_full_response(self):
@@ -184,6 +209,29 @@ class RetryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, "Full summary")
         self.assertEqual(post.call_count, 2)
 
+    async def test_content_filter_refusal_fails_fast(self):
+        patcher, post = _patched_client(_fake_response(200, _openai_body("", "content_filter")))
+        with patcher:
+            with self.assertRaises(LLMError) as ctx:
+                await complete_openai(
+                    api_url="https://x/v1", api_key="k", model="m", prompt="p", length="quick"
+                )
+        self.assertIn("refused", str(ctx.exception))
+        self.assertIn("content_filter", str(ctx.exception))
+        self.assertEqual(post.call_count, 1)
+
+    async def test_empty_error_names_finish_reason_and_raw_body(self):
+        patcher, _ = _patched_client(*[_fake_response(200, _openai_body(""))] * 3)
+        with patcher:
+            with self.assertRaises(LLMError) as ctx:
+                await complete_openai(
+                    api_url="https://x/v1", api_key="k", model="m", prompt="p", length="quick"
+                )
+        message = str(ctx.exception)
+        self.assertIn("finish_reason=stop", message)
+        self.assertIn("Last raw response", message)
+        self.assertIn("OPENAI_MODEL", message)
+
     async def test_http_error_does_not_retry(self):
         patcher, post = _patched_client(_fake_response(404, {"error": "nope"}))
         with patcher:
@@ -201,6 +249,37 @@ class RetryTests(unittest.IsolatedAsyncioTestCase):
                     api_url="https://x/v1", api_key="k", model="m", prompt="p", length="quick"
                 )
         self.assertEqual(post.call_count, 1)
+
+    async def test_reasoning_effort_sent_when_configured(self):
+        patcher, post = _patched_client(_fake_response(200, _openai_body("Hi")))
+        with patcher:
+            result = await complete_openai(
+                api_url="https://x/v1", api_key="k", model="m", prompt="p",
+                length="quick", reasoning_effort="none",
+            )
+        self.assertEqual(result, "Hi")
+        payload = post.call_args.kwargs["json"]
+        self.assertEqual(payload["reasoning_effort"], "none")
+        self.assertEqual(payload["temperature"], 0.4)
+
+    async def test_reasoning_effort_omitted_by_default(self):
+        patcher, post = _patched_client(_fake_response(200, _openai_body("Hi")))
+        with patcher:
+            await complete_openai(
+                api_url="https://x/v1", api_key="k", model="m", prompt="p", length="quick"
+            )
+        payload = post.call_args.kwargs["json"]
+        self.assertNotIn("reasoning_effort", payload)
+        self.assertEqual(payload["temperature"], 0.4)
+
+    async def test_custom_temperature_sent(self):
+        patcher, post = _patched_client(_fake_response(200, _openai_body("Hi")))
+        with patcher:
+            await complete_openai(
+                api_url="https://x/v1", api_key="k", model="m", prompt="p",
+                length="quick", temperature=0.7,
+            )
+        self.assertEqual(post.call_args.kwargs["json"]["temperature"], 0.7)
 
     async def test_anthropic_empty_retries(self):
         patcher, post = _patched_client(

@@ -92,6 +92,17 @@ Transient hiccups (empty or cut-off completions) are retried automatically, up t
 3 attempts per summary; persistent failures return a 502 whose detail names the
 cause — also visible in `docker compose logs`.
 
+### Thinking models on Ollama Cloud (empty answers / 502s)
+
+Thinking/reasoning models (e.g. DeepSeek V4 Flash) run with thinking ON by
+default on Ollama Cloud and can spend the entire token budget reasoning,
+returning HTTP 200 with empty content — after 3 such attempts the backend
+answers 502. The fix is `LLM_REASONING_EFFORT=none` in `.env` (disables
+thinking via the top-level `reasoning_effort` parameter), then
+`docker compose up --build -d`. As a backstop, the backend also strips
+`<think>` traces from responses and falls back to `reasoning_content` /
+`reasoning` fields when `content` comes back empty.
+
 ## How reuse works
 
 1. The backend canonicalizes any YouTube URL (`watch?v=`, `youtu.be`, `/shorts/`, `/embed/`, `/live/`)
@@ -135,6 +146,8 @@ Lengths: `quick` (<150 words), `medium`/`mid` (≈350 words), `long` (≈800 wor
 | `LLM_PROVIDER` | `openai` or `anthropic` | `openai` |
 | `OPENAI_API_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL` | OpenAI-compatible endpoint | `https://api.openai.com/v1` / — / `gpt-4o-mini` |
 | `ANTHROPIC_API_URL` / `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | Anthropic-compatible endpoint | `https://api.anthropic.com` / — / `claude-sonnet-4-20250514` |
+| `LLM_TEMPERATURE` | Sampling temperature for summaries | `0.4` |
+| `LLM_REASONING_EFFORT` | Thinking control (`none`/`low`/`high`/…; empty = not sent) | — (empty) |
 | `MAX_SUMMARIES_PER_URL_LENGTH` | Stored versions per (URL, length) | `5` |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | In-memory admin user (delete + full search) | `admin` / `changeme` |
 | `DATABASE_PATH` | SQLite file | `backend/data/summaries.db` |

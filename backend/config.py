@@ -39,6 +39,13 @@ def _int(name: str, default: int) -> int:
         return default
 
 
+def _float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, str(default)).strip())
+    except (ValueError, AttributeError):
+        return default
+
+
 @dataclass(frozen=True)
 class Settings:
     llm_provider: str  # "openai" | "anthropic"
@@ -48,6 +55,8 @@ class Settings:
     anthropic_api_url: str
     anthropic_api_key: str
     anthropic_model: str
+    llm_temperature: float
+    llm_reasoning_effort: str
     max_summaries: int
     database_path: str
     host: str
@@ -80,6 +89,8 @@ def get_settings() -> Settings:
         anthropic_api_url=os.environ.get("ANTHROPIC_API_URL", "https://api.anthropic.com").strip().rstrip("/"),
         anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", "").strip(),
         anthropic_model=os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514").strip(),
+        llm_temperature=_float("LLM_TEMPERATURE", 0.4),
+        llm_reasoning_effort=os.environ.get("LLM_REASONING_EFFORT", "").strip().lower(),
         max_summaries=_int("MAX_SUMMARIES_PER_URL_LENGTH", 5),
         database_path=os.environ.get("DATABASE_PATH", "backend/data/summaries.db").strip(),
         host=os.environ.get("HOST", "127.0.0.1").strip(),
