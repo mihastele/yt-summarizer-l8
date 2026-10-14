@@ -162,7 +162,7 @@ export default function App() {
   const doLogin = useCallback(async (e) => {
     e?.preventDefault();
     if (!loginName.trim() || !loginPass) {
-      setLoginError('Enter the admin username and password.');
+      setLoginError('Enter your username and password.');
       return;
     }
     setLoginBusy(true);
@@ -174,7 +174,7 @@ export default function App() {
       setAdminUser(data.username || loginName.trim());
       setShowLogin(false);
       setLoginPass('');
-      setNotice('Logged in as admin — delete and full search are unlocked.');
+      setNotice('Logged in.');
       refreshHistory({ isAdmin: true });
     } catch (err) {
       setLoginError(err.message);
@@ -194,7 +194,7 @@ export default function App() {
     setAdminUser('');
     setHistQuery('');
     setHistLength('');
-    setNotice('Logged out. Showing the 5 most recent summaries.');
+    setNotice('Logged out.');
     refreshHistory({ isAdmin: false, q: '', len: '' });
   }, [refreshHistory]);
 
@@ -245,7 +245,7 @@ export default function App() {
             <span className="meta-sep">·</span>
             {isAdmin ? (
               <>
-                <span className="admin-badge" title="Logged in as admin">admin{adminUser ? `: ${adminUser}` : ''}</span>
+                <span className="admin-badge" title="Logged in">{adminUser || 'Logged in'}</span>
                 <button className="link-btn" onClick={doLogout}>Log out</button>
               </>
             ) : (
@@ -260,7 +260,7 @@ export default function App() {
       {showLogin && !isAdmin && (
         <div className="login-strip">
           <form className="login-form" onSubmit={doLogin}>
-            <span className="login-title">Admin log in</span>
+            <span className="login-title">Log in</span>
             <label className="sr-only" htmlFor="login-user">Username</label>
             <input
               id="login-user"
@@ -407,7 +407,7 @@ export default function App() {
                     {loading ? 'Regenerating…' : 'Regenerate'}
                   </button>
                   {isAdmin && active && (
-                    <button className="btn danger-ghost" onClick={removeActive} title="Delete this version (admin only)">
+                    <button className="btn danger-ghost" onClick={removeActive} title="Delete this version">
                       Delete
                     </button>
                   )}
@@ -447,10 +447,10 @@ export default function App() {
 
         <aside className="rail">
           <div className="rail-head">
-            <h2>{isAdmin ? 'All summaries' : 'Recent'}</h2>
+            <h2>Recent</h2>
             <button className="link-btn" onClick={() => refreshHistory()}>Refresh</button>
           </div>
-          {isAdmin ? (
+          {isAdmin && (
             <div className="history-tools">
               <input
                 className="history-search"
@@ -473,10 +473,6 @@ export default function App() {
                 <option value="extended">Extended</option>
               </select>
             </div>
-          ) : (
-            <p className="dim small guest-note">
-              Showing the 5 most recent. <button className="link-btn" onClick={() => setShowLogin(true)}>Log in</button> as admin to search everything.
-            </p>
           )}
           {history.length === 0 ? (
             <p className="dim small">

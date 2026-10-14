@@ -102,6 +102,6 @@ def require_admin(request: Request) -> None:
     if not is_admin_request(request):
         raise HTTPException(
             status_code=401,
-            detail="Admin authentication required",
-            headers={"WWW-Authenticate": 'Basic realm="admin"'},
+            detail="Authentication required",
+            headers={"WWW-Authenticate": 'Basic realm="login"'},
         )

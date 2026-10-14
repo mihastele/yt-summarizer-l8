@@ -102,7 +102,7 @@ def get_summaries(url: str = Query(min_length=8, max_length=2000), length: str =
 @app.post("/api/login")
 def login(req: LoginRequest) -> dict[str, str]:
     if not auth.verify_credentials(req.username, req.password):
-        raise HTTPException(status_code=401, detail="Invalid admin credentials")
+        raise HTTPException(status_code=401, detail="Invalid credentials")
     return {"token": auth.issue_token(req.username), "username": req.username}
 
 
