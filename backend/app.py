@@ -1,0 +1,177 @@
+"""FastAPI service: summarize YouTube videos, reuse stored versions, regenerate on demand."""
+from __future__ import annotations
+
+import asyncio
+from contextlib import asynccontextmanager
+from typing import Any, Literal
+
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+
+from . import db
+from .config import settings
+from .llm import LLMError, complete_anthropic, complete_openai
+from .prompts import build_prompt, normalize_length
+from .transcripts import (
+    canonical_url,
+    extract_video_id,
+    fetch_title,
+    fetch_transcript,
+    truncate_transcript,
+)
+
+
+class SummarizeRequest(BaseModel):
+    url: str = Field(min_length=8, max_length=2000)
+    length: str = Field(default="medium", max_length=20)
+    regenerate: bool = False
+
+
+class SummarizeResponse(BaseModel):
+    url: str
+    video_id: str
+    title: str
+    length: str
+    reused: bool
+    summaries: list[dict[str, Any]]
+    max_versions: int
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    db.init_db(settings.database_path)
+    yield
+
+
+app = FastAPI(title="YouTube Summarizer", version="1.0.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/api/health")
+def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/api/config")
+def get_config() -> dict[str, Any]:
+    return {
+        "provider": settings.llm_provider,
+        "model": settings.active_model,
+        "max_summaries": settings.max_summaries,
+        "has_api_key": bool(settings.active_api_key),
+    }
+
+
+@app.get("/api/summaries")
+def get_summaries(url: str = Query(min_length=8, max_length=2000), length: str = "medium") -> dict[str, Any]:
+    try:
+        video_id = extract_video_id(url)
+        norm_length = normalize_length(length)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    canonical = canonical_url(video_id)
+    return {
+        "url": canonical,
+        "video_id": video_id,
+        "length": norm_length,
+        "summaries": db.list_summaries(canonical, norm_length),
+        "max_versions": settings.max_summaries,
+    }
+
+
+@app.get("/api/history")
+def get_history(limit: int = Query(default=20, ge=1, le=100)) -> dict[str, Any]:
+    return {"items": db.recent_pairs(limit)}
+
+
+@app.delete("/api/summaries/{summary_id}")
+def remove_summary(summary_id: int) -> dict[str, bool]:
+    if not db.delete_summary(summary_id):
+        raise HTTPException(status_code=404, detail="Summary not found")
+    return {"deleted": True}
+
+
+@app.post("/api/summarize", response_model=SummarizeResponse)
+async def summarize(req: SummarizeRequest) -> SummarizeResponse:
+    try:
+        video_id = extract_video_id(req.url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        length = normalize_length(req.length)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    canonical = canonical_url(video_id)
+
+    existing = db.list_summaries(canonical, length)
+    if existing and not req.regenerate:
+        title = existing[0].get("title", "") or await fetch_title(video_id)
+        return SummarizeResponse(
+            url=canonical, video_id=video_id, title=title, length=length,
+            reused=True, summaries=existing, max_versions=settings.max_summaries,
+        )
+
+    if not settings.active_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"No API key configured for provider '{settings.llm_provider}'. "
+                "Copy .env.example to .env and set the API key, then restart the backend."
+            ),
+        )
+
+    try:
+        transcript = await asyncio.to_thread(fetch_transcript, video_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    transcript = truncate_transcript(transcript)
+    if len(transcript) < 200:
+        raise HTTPException(status_code=422, detail="Transcript is too short to summarize reliably.")
+
+    prompt = build_prompt(length, "", transcript)
+    try:
+        if settings.llm_provider == "anthropic":
+            text = await complete_anthropic(
+                api_url=settings.active_api_url, api_key=settings.active_api_key,
+                model=settings.active_model, prompt=prompt, length=length,
+            )
+        else:
+            text = await complete_openai(
+                api_url=settings.active_api_url, api_key=settings.active_api_key,
+                model=settings.active_model, prompt=prompt, length=length,
+            )
+    except LLMError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    if not text:
+        raise HTTPException(status_code=502, detail="The LLM returned an empty summary.")
+
+    title = await fetch_title(video_id)
+    summaries = db.add_summary(
+        url=canonical, video_id=video_id, title=title, length=length,
+        summary=text, model=f"{settings.llm_provider}:{settings.active_model}",
+        transcript_chars=len(transcript), max_versions=settings.max_summaries,
+    )
+    return SummarizeResponse(
+        url=canonical, video_id=video_id, title=title or video_id, length=length,
+        reused=False, summaries=summaries, max_versions=settings.max_summaries,
+    )
+
+
+def main() -> None:
+    import uvicorn
+
+    db.init_db(settings.database_path)
+    uvicorn.run("backend.app:app", host=settings.host, port=settings.port, reload=False)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,47 @@
+# --- Secrets / local config (never commit real keys) ---
+.env*
+!.env.example
+
+# --- Python ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- App data: SQLite database + WAL sidecars ---
+backend/data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3*
+
+# --- Node / frontend ---
+node_modules/
+frontend/dist/
+# NOTE: frontend/package-lock.json is intentionally TRACKED — the Docker build
+# runs `npm ci`, which requires it.
+npm-debug.log*
+yarn-error.log*
+
+# --- Logs ---
+*.log
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Editors / IDEs ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# --- Test / coverage artifacts ---
+.coverage
+htmlcov/
+coverage/

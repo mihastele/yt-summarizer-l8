@@ -1,0 +1,42 @@
+name: yt-summarizer
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: yt-summarizer-backend:latest
+    env_file:
+      - .env
+    environment:
+      # Container overrides: listen on all interfaces, store SQLite on the volume.
+      HOST: "0.0.0.0"
+      PORT: "8000"
+      DATABASE_PATH: /data/summaries.db
+    volumes:
+      - yt-data:/data
+    # Loopback-only: the UI talks to the backend via nginx; direct access is for debugging.
+    ports:
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: yt-summarizer-frontend:latest
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    restart: unless-stopped
+
+volumes:
+  yt-data:

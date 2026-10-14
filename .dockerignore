@@ -1,0 +1,9 @@
+# Root context (backend image build)
+.venv/
+__pycache__/
+frontend/
+backend/data/
+backend/__pycache__/
+.env
+.git/
+*.log
