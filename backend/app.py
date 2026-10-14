@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from typing import Any, Literal
+
+logger = logging.getLogger("yt-summarizer")
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -119,18 +122,10 @@ async def summarize(req: SummarizeRequest) -> SummarizeResponse:
             reused=True, summaries=existing, max_versions=settings.max_summaries,
         )
 
-    if not settings.active_api_key:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                f"No API key configured for provider '{settings.llm_provider}'. "
-                "Copy .env.example to .env and set the API key, then restart the backend."
-            ),
-        )
-
     try:
         transcript = await asyncio.to_thread(fetch_transcript, video_id)
     except RuntimeError as exc:
+        logger.warning("Transcript fetch failed for %s: %s", video_id, exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     transcript = truncate_transcript(transcript)
     if len(transcript) < 200:
@@ -149,6 +144,7 @@ async def summarize(req: SummarizeRequest) -> SummarizeResponse:
                 model=settings.active_model, prompt=prompt, length=length,
             )
     except LLMError as exc:
+        logger.warning("LLM request failed (%s %s): %s", settings.llm_provider, settings.active_model, exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     if not text:

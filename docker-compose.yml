@@ -15,9 +15,14 @@ services:
       DATABASE_PATH: /data/summaries.db
     volumes:
       - yt-data:/data
+    # Lets the backend reach host-local LLM servers (e.g. Ollama) via
+    # http://host.docker.internal:11434 — required on Linux, harmless elsewhere.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     # Loopback-only: the UI talks to the backend via nginx; direct access is for debugging.
+    # Host side is configurable via BACKEND_PORT (container always listens on 8000).
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')\""]

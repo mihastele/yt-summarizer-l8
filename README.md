@@ -57,8 +57,25 @@ docker compose down           # stop (data kept in yt-data volume)
 docker compose down -v        # stop AND delete stored summaries
 ```
 
-The backend is also reachable directly at http://127.0.0.1:8000 (loopback only) for
-debugging, e.g. `GET /api/health`.
+The backend is also reachable directly at http://127.0.0.1:8000 (loopback only,
+`BACKEND_PORT` in `.env` if you changed it) for debugging, e.g. `GET /api/health`.
+
+## Using a local Ollama server
+
+The backend speaks plain OpenAI-compatible chat completions, so Ollama works with
+`LLM_PROVIDER=openai`. Three things must be right, or `/api/summarize` answers 502
+(the exact cause is in the response detail and in `docker compose logs`):
+
+1. **Ollama must listen on all interfaces.** By default it binds to localhost only,
+   which containers can't reach. Start it with `OLLAMA_HOST=0.0.0.0 ollama serve`
+   (or set `OLLAMA_HOST=0.0.0.0` persistently) and restart it.
+2. **The URL must resolve from inside the container.** `localhost` inside the
+   backend container means the container itself, not your machine. Use:
+   - compose: `OPENAI_API_URL=http://host.docker.internal:11434/v1`
+     (the compose file maps this to your host automatically)
+   - local dev: `OPENAI_API_URL=http://localhost:11434/v1`
+3. **The model must be pulled.** `ollama pull gemma3:12b`, and set `OPENAI_MODEL`
+   to exactly what `ollama list` shows. Leave `OPENAI_API_KEY` empty — no key needed.
 
 ## How reuse works
 
@@ -84,6 +101,7 @@ Lengths: `quick` (<150 words), `medium`/`mid` (≈350 words), `long` (≈800 wor
 | `DATABASE_PATH` | SQLite file | `backend/data/summaries.db` |
 | `HOST` / `PORT` | Backend bind (local dev; overridden in compose) | `127.0.0.1` / `8000` |
 | `FRONTEND_PORT` | Host port for the web UI (compose only) | `8080` |
+| `BACKEND_PORT` | Host port for direct backend access (compose only) | `8000` |
 
 Settings are read once on backend startup — restart after editing `.env`.
 Full endpoint URLs also work for the `*_API_URL` values (e.g. ending in

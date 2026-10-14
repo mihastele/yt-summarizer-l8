@@ -221,8 +221,8 @@ export default function App() {
           {notice && !error && <div className="alert info" role="status">{notice}</div>}
           {config && !config.has_api_key && (
             <div className="alert warn" role="status">
-              No LLM API key configured — new summaries will fail until you copy <code>.env.example</code> to{' '}
-              <code>.env</code>, add a key, and restart the backend. Saved summaries still load.
+              No LLM API key configured — cloud providers need one in <code>.env</code> (keyless local
+              servers like Ollama work without). Saved summaries still load.
             </div>
           )}
 
