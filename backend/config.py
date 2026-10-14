@@ -52,6 +52,8 @@ class Settings:
     database_path: str
     host: str
     port: int
+    admin_username: str
+    admin_password: str
 
     @property
     def active_api_url(self) -> str:
@@ -82,6 +84,8 @@ def get_settings() -> Settings:
         database_path=os.environ.get("DATABASE_PATH", "backend/data/summaries.db").strip(),
         host=os.environ.get("HOST", "127.0.0.1").strip(),
         port=_int("PORT", 8000),
+        admin_username=os.environ.get("ADMIN_USERNAME", "admin").strip(),
+        admin_password=os.environ.get("ADMIN_PASSWORD", "changeme").strip(),
     )
 
 

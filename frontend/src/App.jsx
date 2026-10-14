@@ -1,5 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { deleteVersion, fetchConfig, fetchHistory, fetchVersions, summarize } from './api.js';
+import {
+  deleteVersion, fetchConfig, fetchHistory, fetchMe, fetchVersions,
+  getAdminToken, login, logout, setAdminToken, summarize,
+} from './api.js';
 import { Markdown } from './markdown.jsx';
 
 const LENGTHS = [
@@ -40,12 +43,33 @@ export default function App() {
   const [history, setHistory] = useState([]);
   const [config, setConfig] = useState(null);
   const [notice, setNotice] = useState('');
-  const abortRef = useRef(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminUser, setAdminUser] = useState('');
+  const [showLogin, setShowLogin] = useState(false);
+  const [loginName, setLoginName] = useState('');
+  const [loginPass, setLoginPass] = useState('');
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [loginError, setLoginError] = useState('');
+  const [histQuery, setHistQuery] = useState('');
+  const [histLength, setHistLength] = useState('');
 
-  const refreshHistory = useCallback(async () => {
+  const isAdminRef = useRef(isAdmin);
+  isAdminRef.current = isAdmin;
+  const histQueryRef = useRef(histQuery);
+  histQueryRef.current = histQuery;
+  const histLengthRef = useRef(histLength);
+  histLengthRef.current = histLength;
+
+  const refreshHistory = useCallback(async (overrides = {}) => {
+    const admin = overrides.isAdmin ?? isAdminRef.current;
+    const q = overrides.q ?? histQueryRef.current;
+    const len = overrides.len ?? histLengthRef.current;
     try {
-      const data = await fetchHistory();
+      const data = admin
+        ? await fetchHistory({ limit: 50, q: q.trim(), length: len })
+        : await fetchHistory({ limit: 5 });
       setHistory(data.items || []);
+      if (typeof data.is_admin === 'boolean') setIsAdmin(data.is_admin);
     } catch {
       /* history is best-effort */
     }
@@ -53,8 +77,30 @@ export default function App() {
 
   useEffect(() => {
     fetchConfig().then(setConfig).catch(() => setConfig(null));
-    refreshHistory();
+    // Restore an admin session from a stored token, then load history.
+    if (getAdminToken()) {
+      fetchMe()
+        .then((me) => {
+          setIsAdmin(!!me.is_admin);
+          if (!me.is_admin) setAdminToken(null);
+          refreshHistory({ isAdmin: !!me.is_admin });
+        })
+        .catch(() => {
+          setAdminToken(null);
+          setIsAdmin(false);
+          refreshHistory({ isAdmin: false });
+        });
+    } else {
+      refreshHistory({ isAdmin: false });
+    }
   }, [refreshHistory]);
+
+  // Debounced re-query while the admin types in the history search box.
+  useEffect(() => {
+    if (!isAdmin) return;
+    const t = setTimeout(() => refreshHistory(), 350);
+    return () => clearTimeout(t);
+  }, [histQuery, histLength, isAdmin, refreshHistory]);
 
   useEffect(() => {
     if (!notice) return;
@@ -112,6 +158,45 @@ export default function App() {
     []
   );
 
+  const doLogin = useCallback(async (e) => {
+    e?.preventDefault();
+    if (!loginName.trim() || !loginPass) {
+      setLoginError('Enter the admin username and password.');
+      return;
+    }
+    setLoginBusy(true);
+    setLoginError('');
+    try {
+      const data = await login(loginName.trim(), loginPass);
+      setAdminToken(data.token);
+      setIsAdmin(true);
+      setAdminUser(data.username || loginName.trim());
+      setShowLogin(false);
+      setLoginPass('');
+      setNotice('Logged in as admin — delete and full search are unlocked.');
+      refreshHistory({ isAdmin: true });
+    } catch (err) {
+      setLoginError(err.message);
+    } finally {
+      setLoginBusy(false);
+    }
+  }, [loginName, loginPass, refreshHistory]);
+
+  const doLogout = useCallback(async () => {
+    try {
+      await logout();
+    } catch {
+      /* token may already be expired — still clear it locally */
+    }
+    setAdminToken(null);
+    setIsAdmin(false);
+    setAdminUser('');
+    setHistQuery('');
+    setHistLength('');
+    setNotice('Logged out. Showing the 5 most recent summaries.');
+    refreshHistory({ isAdmin: false, q: '', len: '' });
+  }, [refreshHistory]);
+
   const removeActive = useCallback(async () => {
     if (!active) return;
     try {
@@ -156,9 +241,51 @@ export default function App() {
             ) : (
               <span className="meta-text dim">connecting to backend…</span>
             )}
+            <span className="meta-sep">·</span>
+            {isAdmin ? (
+              <>
+                <span className="admin-badge" title="Logged in as admin">admin{adminUser ? `: ${adminUser}` : ''}</span>
+                <button className="link-btn" onClick={doLogout}>Log out</button>
+              </>
+            ) : (
+              <button className="link-btn" onClick={() => { setShowLogin((v) => !v); setLoginError(''); }}>
+                {showLogin ? 'Close' : 'Log in'}
+              </button>
+            )}
           </div>
         </div>
       </header>
+
+      {showLogin && !isAdmin && (
+        <div className="login-strip">
+          <form className="login-form" onSubmit={doLogin}>
+            <span className="login-title">Admin log in</span>
+            <label className="sr-only" htmlFor="login-user">Username</label>
+            <input
+              id="login-user"
+              className="login-input"
+              placeholder="Username"
+              autoComplete="username"
+              value={loginName}
+              onChange={(e) => setLoginName(e.target.value)}
+            />
+            <label className="sr-only" htmlFor="login-pass">Password</label>
+            <input
+              id="login-pass"
+              className="login-input"
+              type="password"
+              placeholder="Password"
+              autoComplete="current-password"
+              value={loginPass}
+              onChange={(e) => setLoginPass(e.target.value)}
+            />
+            <button type="submit" className="btn primary login-btn" disabled={loginBusy}>
+              {loginBusy ? 'Checking…' : 'Log in'}
+            </button>
+            {loginError && <span className="login-error" role="alert">{loginError}</span>}
+          </form>
+        </div>
+      )}
 
       <main className="layout">
         <section className="primary">
@@ -278,8 +405,8 @@ export default function App() {
                   >
                     {loading ? 'Regenerating…' : 'Regenerate'}
                   </button>
-                  {active && (
-                    <button className="btn danger-ghost" onClick={removeActive} title="Delete this version">
+                  {isAdmin && active && (
+                    <button className="btn danger-ghost" onClick={removeActive} title="Delete this version (admin only)">
                       Delete
                     </button>
                   )}
@@ -319,11 +446,42 @@ export default function App() {
 
         <aside className="rail">
           <div className="rail-head">
-            <h2>Recent</h2>
-            <button className="link-btn" onClick={refreshHistory}>Refresh</button>
+            <h2>{isAdmin ? 'All summaries' : 'Recent'}</h2>
+            <button className="link-btn" onClick={() => refreshHistory()}>Refresh</button>
           </div>
+          {isAdmin ? (
+            <div className="history-tools">
+              <input
+                className="history-search"
+                type="search"
+                placeholder="Search title, link, video id…"
+                aria-label="Search summaries"
+                value={histQuery}
+                onChange={(e) => setHistQuery(e.target.value)}
+              />
+              <select
+                className="history-filter"
+                aria-label="Filter by depth"
+                value={histLength}
+                onChange={(e) => setHistLength(e.target.value)}
+              >
+                <option value="">All depths</option>
+                <option value="quick">Quick</option>
+                <option value="medium">Mid-length</option>
+                <option value="long">Long</option>
+              </select>
+            </div>
+          ) : (
+            <p className="dim small guest-note">
+              Showing the 5 most recent. <button className="link-btn" onClick={() => setShowLogin(true)}>Log in</button> as admin to search everything.
+            </p>
+          )}
           {history.length === 0 ? (
-            <p className="dim small">Nothing summarized yet. Your recent videos will appear here.</p>
+            <p className="dim small">
+              {isAdmin && (histQuery || histLength)
+                ? 'No summaries match this search.'
+                : 'Nothing summarized yet. Your recent videos will appear here.'}
+            </p>
           ) : (
             <ol className="history-list">
               {history.map((h) => (
@@ -347,6 +505,34 @@ export default function App() {
           </div>
         </aside>
       </main>
+
+      <div className="support-banner">
+        <span className="support-text">
+          Recap is free to run — if it saves you time, consider supporting it.
+        </span>
+        <a
+          className="btn coffee"
+          href="https://www.buymeacoffee.com/mihastele"
+          target="_blank"
+          rel="noreferrer"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M4 9h12v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9z"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M16 10h1.5a2.5 2.5 0 0 1 0 5H16M7 4.5c0 1 .8 1.2.8 2.2M11 4.5c0 1 .8 1.2.8 2.2"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+          </svg>
+          Support us
+        </a>
+      </div>
 
       <footer className="footer">
         <span>Recap fetches public captions and summarizes them with your configured LLM. Summaries may contain errors — check the video for anything important.</span>

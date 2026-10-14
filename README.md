@@ -101,7 +101,30 @@ cause — also visible in `docker compose logs`.
 3. With `"regenerate": true` (or no stored versions) it fetches captions, calls the LLM,
    appends a new version, and evicts the oldest past `MAX_SUMMARIES_PER_URL_LENGTH`.
 4. `GET /api/summaries?url=…&length=…` lists versions; `GET /api/history` lists recent
-   pairs; `DELETE /api/summaries/{id}` drops one version.
+   pairs (guests: 5 most recent; admin: searchable/filterable); `DELETE
+   /api/summaries/{id}` drops one version (admin only, enforced by the backend).
+
+## Admin access
+
+One admin user is defined in-memory via `ADMIN_USERNAME` / `ADMIN_PASSWORD` in
+`.env` — there is no users table. Guests can summarize and view, but only the
+admin can delete summaries or browse/search/filter beyond the 5 most recent.
+
+- In the UI, click **Log in** (top right) and enter the admin credentials.
+  The Delete button and the history search/filter appear only for the admin.
+- API clients can either send HTTP Basic auth (`Authorization: Basic
+  base64(user:pass)`) or log in once and reuse the token:
+  `POST /api/login {"username","password"}` → `{"token",…}`, then
+  `Authorization: Bearer <token>`. Tokens live in backend memory only and
+  expire after 12 hours; `POST /api/logout` revokes the current one.
+- Admin-only endpoints: `DELETE /api/summaries/{id}` and
+  `GET /api/admin/summaries?q=…&length=…&video_id=…&limit=…&offset=…`
+  (every stored version, newest first, with a `total` count for paging).
+  Both answer `401` without valid admin credentials, so rogue delete
+  requests from non-admin clients are rejected.
+
+Change `ADMIN_PASSWORD` from the `changeme` default before exposing the app;
+the backend logs a warning on startup while the default is in place.
 
 Lengths: `quick` (<150 words), `medium`/`mid` (≈350 words), `long` (≈800 words).
 
@@ -113,6 +136,7 @@ Lengths: `quick` (<150 words), `medium`/`mid` (≈350 words), `long` (≈800 wor
 | `OPENAI_API_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL` | OpenAI-compatible endpoint | `https://api.openai.com/v1` / — / `gpt-4o-mini` |
 | `ANTHROPIC_API_URL` / `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | Anthropic-compatible endpoint | `https://api.anthropic.com` / — / `claude-sonnet-4-20250514` |
 | `MAX_SUMMARIES_PER_URL_LENGTH` | Stored versions per (URL, length) | `5` |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | In-memory admin user (delete + full search) | `admin` / `changeme` |
 | `DATABASE_PATH` | SQLite file | `backend/data/summaries.db` |
 | `HOST` / `PORT` | Backend bind (local dev; overridden in compose) | `127.0.0.1` / `8000` |
 | `FRONTEND_PORT` | Host port for the web UI (compose only) | `8080` |

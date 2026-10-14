@@ -117,17 +117,41 @@ def delete_summary(summary_id: int) -> bool:
         conn.close()
 
 
-def recent_pairs(limit: int = 20) -> list[dict[str, Any]]:
-    """Most recent summary per (url, length) pair for history display."""
+def _search_clause(query: str | None, length: str | None, alias: str = "s") -> tuple[str, list[str]]:
+    """Shared WHERE fragment for admin search/filter. Returns (sql, params)."""
+    clauses: list[str] = []
+    params: list[str] = []
+    if query:
+        like = f"%{query}%"
+        clauses.append(
+            f"({alias}.title LIKE ? OR {alias}.url LIKE ? OR {alias}.video_id LIKE ? OR {alias}.summary LIKE ?)"
+        )
+        params.extend([like, like, like, like])
+    if length:
+        clauses.append(f"{alias}.length = ?")
+        params.append(length)
+    return (" AND ".join(clauses), params) if clauses else ("1 = 1", [])
+
+
+def recent_pairs(
+    limit: int = 20, query: str | None = None, length: str | None = None
+) -> list[dict[str, Any]]:
+    """Most recent summary per (url, length) pair for history display.
+
+    Optional query/length narrow the pairs shown (admin view); guests call
+    this with no filters and a small limit.
+    """
+    where, params = _search_clause(query, length)
     conn = _connect()
     try:
         rows = conn.execute(
-            """SELECT s.* FROM summaries s
+            f"""SELECT s.* FROM summaries s
                INNER JOIN (
                    SELECT url, length, MAX(id) AS max_id FROM summaries GROUP BY url, length
                ) latest ON s.id = latest.max_id
+               WHERE {where}
                ORDER BY s.id DESC LIMIT ?""",
-            (limit,),
+            (*params, limit),
         ).fetchall()
         out: list[dict[str, Any]] = []
         for r in rows:
@@ -139,5 +163,34 @@ def recent_pairs(limit: int = 20) -> list[dict[str, Any]]:
             d["version_count"] = count
             out.append(d)
         return out
+    finally:
+        conn.close()
+
+
+def list_all_summaries(
+    query: str | None = None,
+    length: str | None = None,
+    video_id: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[dict[str, Any]], int]:
+    """Every stored summary version, newest first, with admin search/filter.
+
+    Returns (rows, total_matching) so callers can paginate.
+    """
+    where, params = _search_clause(query, length)
+    if video_id:
+        where += " AND s.video_id = ?"
+        params.append(video_id)
+    conn = _connect()
+    try:
+        total = conn.execute(
+            f"SELECT COUNT(*) FROM summaries s WHERE {where}", params
+        ).fetchone()[0]
+        rows = conn.execute(
+            f"SELECT s.* FROM summaries s WHERE {where} ORDER BY s.id DESC LIMIT ? OFFSET ?",
+            (*params, limit, offset),
+        ).fetchall()
+        return ([_row_to_dict(r) for r in rows], total)
     finally:
         conn.close()

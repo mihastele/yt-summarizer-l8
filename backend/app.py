@@ -8,12 +8,14 @@ from typing import Any, Literal
 
 logger = logging.getLogger("yt-summarizer")
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from . import db
+from . import auth, db
 from .config import settings
+
+GUEST_HISTORY_LIMIT = 5
 from .llm import LLMError, complete_anthropic, complete_openai
 from .prompts import build_prompt, normalize_length
 from .transcripts import (
@@ -41,13 +43,20 @@ class SummarizeResponse(BaseModel):
     max_versions: int
 
 
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=200)
+    password: str = Field(min_length=1, max_length=500)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     db.init_db(settings.database_path)
+    if settings.admin_password == "changeme":
+        logger.warning("ADMIN_PASSWORD is still the default — change it in .env")
     yield
 
 
-app = FastAPI(title="YouTube Summarizer", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="YouTube Summarizer", version="1.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -90,13 +99,74 @@ def get_summaries(url: str = Query(min_length=8, max_length=2000), length: str =
     }
 
 
+@app.post("/api/login")
+def login(req: LoginRequest) -> dict[str, str]:
+    if not auth.verify_credentials(req.username, req.password):
+        raise HTTPException(status_code=401, detail="Invalid admin credentials")
+    return {"token": auth.issue_token(req.username), "username": req.username}
+
+
+@app.post("/api/logout")
+def logout(request: Request) -> dict[str, bool]:
+    token = auth.bearer_token(request)
+    if token:
+        auth.revoke_token(token)
+    return {"logged_out": True}
+
+
+@app.get("/api/me")
+def me(request: Request) -> dict[str, Any]:
+    return {"is_admin": auth.is_admin_request(request)}
+
+
 @app.get("/api/history")
-def get_history(limit: int = Query(default=20, ge=1, le=100)) -> dict[str, Any]:
-    return {"items": db.recent_pairs(limit)}
+def get_history(
+    request: Request,
+    limit: int = Query(default=20, ge=1, le=100),
+    q: str | None = Query(default=None, max_length=200),
+    length: str | None = Query(default=None, max_length=20),
+) -> dict[str, Any]:
+    if auth.is_admin_request(request):
+        norm_length: str | None = None
+        if length:
+            try:
+                norm_length = normalize_length(length)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "items": db.recent_pairs(limit, query=(q or None), length=norm_length),
+            "is_admin": True,
+        }
+    # Guests: most recent pairs only — search/filter params are ignored.
+    return {"items": db.recent_pairs(min(limit, GUEST_HISTORY_LIMIT)), "is_admin": False}
+
+
+@app.get("/api/admin/summaries")
+def admin_summaries(
+    request: Request,
+    q: str | None = Query(default=None, max_length=200),
+    length: str | None = Query(default=None, max_length=20),
+    video_id: str | None = Query(default=None, max_length=32),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> dict[str, Any]:
+    auth.require_admin(request)
+    norm_length: str | None = None
+    if length:
+        try:
+            norm_length = normalize_length(length)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    items, total = db.list_all_summaries(
+        query=(q or None), length=norm_length, video_id=(video_id or None),
+        limit=limit, offset=offset,
+    )
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 @app.delete("/api/summaries/{summary_id}")
-def remove_summary(summary_id: int) -> dict[str, bool]:
+def remove_summary(request: Request, summary_id: int) -> dict[str, bool]:
+    auth.require_admin(request)
     if not db.delete_summary(summary_id):
         raise HTTPException(status_code=404, detail="Summary not found")
     return {"deleted": True}
