@@ -4,16 +4,19 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 logger = logging.getLogger("yt-summarizer")
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from . import auth, db
 from .config import settings
+from .export import format_export
 
 GUEST_HISTORY_LIMIT = 5
 from .llm import LLMError, complete_anthropic, complete_openai
@@ -162,6 +165,48 @@ def admin_summaries(
         limit=limit, offset=offset,
     )
     return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+
+@app.get("/api/admin/export", response_class=PlainTextResponse)
+def admin_export(
+    request: Request,
+    q: str | None = Query(default=None, max_length=200),
+    length: str | None = Query(default=None, max_length=20),
+    video_id: str | None = Query(default=None, max_length=32),
+    ids: str | None = Query(default=None, max_length=10000),
+    limit: int = Query(default=1000, ge=1, le=10000),
+) -> PlainTextResponse:
+    """One delimited Markdown file with all (or a subset of) summaries.
+
+    Subset either via the q/length/video_id filters or an explicit
+    comma-separated `ids` list (explicit ids win over filters).
+    """
+    auth.require_admin(request)
+    norm_length: str | None = None
+    if length:
+        try:
+            norm_length = normalize_length(length)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if ids is not None and ids.strip():
+        try:
+            parsed = [int(part) for part in ids.split(",") if part.strip()]
+        except ValueError:
+            raise HTTPException(status_code=400, detail="ids must be comma-separated integers") from None
+        if not parsed:
+            raise HTTPException(status_code=400, detail="ids must be comma-separated integers")
+        rows = db.get_summaries_by_ids(parsed)
+    else:
+        rows, _ = db.list_all_summaries(
+            query=(q or None), length=norm_length, video_id=(video_id or None),
+            limit=limit, offset=0,
+        )
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+    return PlainTextResponse(
+        format_export(rows),
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="recap-export-{stamp}.md"'},
+    )
 
 
 @app.delete("/api/summaries/{summary_id}")

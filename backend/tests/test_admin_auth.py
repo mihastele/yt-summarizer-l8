@@ -4,6 +4,7 @@ Run from the repo root:  .venv/bin/python -m unittest discover -s backend/tests 
 """
 import base64
 import dataclasses
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +15,7 @@ from fastapi.testclient import TestClient
 from backend import app as app_module
 from backend import auth, db
 from backend.config import settings as real_settings
+from backend.export import DELIMITER_LEFT, DELIMITER_RIGHT, delimiter_line
 
 
 def _basic(user: str, password: str) -> dict[str, str]:
@@ -171,6 +173,55 @@ class AdminAuthTests(unittest.TestCase):
         res = self.client.get("/api/admin/summaries?limit=3&offset=0", headers=self.admin)
         body = res.json()
         self.assertEqual((body["total"], len(body["items"]), body["limit"], body["offset"]), (9, 3, 3, 0))
+
+    def test_export_requires_auth(self):
+        res = self.client.get("/api/admin/export")
+        self.assertEqual(res.status_code, 401)
+
+    def test_export_all_delimited(self):
+        res = self.client.get("/api/admin/export", headers=self.admin)
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("text/markdown", res.headers["content-type"])
+        self.assertIn("attachment", res.headers["content-disposition"])
+        self.assertIn("recap-export-", res.headers["content-disposition"])
+        body = res.text
+        delimiters = re.findall(r"^@+ \[.+\] @+$", body, re.M)
+        self.assertEqual(len(delimiters), 9)
+        self.assertIn("[Video 3 uniquetoken]", body)
+        self.assertIn("Summary body 0", body)
+        self.assertIn("second version body", body)
+
+    def test_export_with_filters(self):
+        res = self.client.get("/api/admin/export?q=uniquetoken", headers=self.admin)
+        delimiters = re.findall(r"^@+ \[.+\] @+$", res.text, re.M)
+        self.assertEqual(len(delimiters), 1)
+        res = self.client.get("/api/admin/export?length=medium", headers=self.admin)
+        delimiters = re.findall(r"^@+ \[.+\] @+$", res.text, re.M)
+        self.assertEqual(len(delimiters), 4)
+
+    def test_export_ids_subset_in_given_order(self):
+        picked = [self.first_ids[3], self.first_ids[0]]
+        res = self.client.get(f"/api/admin/export?ids={picked[0]},{picked[1]}", headers=self.admin)
+        self.assertEqual(res.status_code, 200)
+        delimiters = re.findall(r"^@+ \[.+\] @+$", res.text, re.M)
+        self.assertEqual(len(delimiters), 2)
+        self.assertLess(res.text.index("[Video 3 uniquetoken]"), res.text.index("[Video 0]"))
+
+    def test_export_invalid_ids_rejected(self):
+        res = self.client.get("/api/admin/export?ids=1,abc", headers=self.admin)
+        self.assertEqual(res.status_code, 400)
+        res = self.client.get("/api/admin/export?length=bogus", headers=self.admin)
+        self.assertEqual(res.status_code, 400)
+
+    def test_export_unknown_ids_yield_empty_file(self):
+        res = self.client.get("/api/admin/export?ids=999999", headers=self.admin)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.text, "")
+
+    def test_delimiter_shape(self):
+        self.assertEqual((len(DELIMITER_LEFT), len(DELIMITER_RIGHT)), (42, 48))
+        self.assertRegex(delimiter_line("Hello"), r"^@+ \[Hello\] @+$")
+        self.assertIn("Untitled", delimiter_line(""))
 
 
 if __name__ == "__main__":

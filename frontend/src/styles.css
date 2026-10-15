@@ -362,6 +362,38 @@ body {
 .dim { color: var(--muted); }
 .rail-foot code { font-size: 12px; background: rgba(0,0,0,0.06); padding: 0 5px; border-radius: 4px; }
 
+/* Dashboard */
+.dashboard-layout { grid-template-columns: minmax(0, 1fr); max-width: 880px; }
+.dash-toggle { width: 100%; margin: 4px 0 8px; }
+.dash-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px 170px;
+  gap: 10px;
+}
+.dash-select { padding: 12px 10px; font-size: 15px; }
+.dash-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+.dash-results { padding: 14px 18px 16px; }
+.dash-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 10px;
+}
+.dash-select-all { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.dash-select-all input, .dash-row input { width: 16px; height: 16px; accent-color: var(--ink); flex-shrink: 0; }
+.dash-counts { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dash-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.dash-list li { border-top: 1px solid var(--line); }
+.dash-row { display: flex; gap: 10px; align-items: flex-start; padding: 10px 4px; cursor: pointer; }
+.dash-row input { margin-top: 4px; }
+.dash-row-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dash-row-title { font-weight: 600; font-size: 14.5px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.dash-row-meta { font-size: 12.5px; color: var(--muted); }
+.dash-load { width: 100%; margin-top: 10px; }
+.dash-export { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+
 .support-banner {
   border-top: 1px solid var(--line);
   background: var(--wash);
@@ -403,6 +435,7 @@ body {
 }
 
 @media (max-width: 920px) {
+  .dash-fields { grid-template-columns: 1fr; }
   .layout { grid-template-columns: 1fr; gap: 26px; }
   .rail { position: static; max-height: none; }
   .display { font-size: 33px; }

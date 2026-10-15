@@ -133,6 +133,13 @@ admin can delete summaries or browse/search/filter beyond the 5 most recent.
   (every stored version, newest first, with a `total` count for paging).
   Both answer `401` without valid admin credentials, so rogue delete
   requests from non-admin clients are rejected.
+- The login-gated dashboard (Dashboard button) searches every version and
+  exports all or a ticked subset into one Markdown file via
+  `GET /api/admin/export` (same filters, or explicit `ids=1,2,3`).
+  Blocks are separated by `@@@… [Video title] @@@…` delimiter lines.
+
+Anyone viewing a summary — guest or logged in — can copy it to the clipboard
+or download it as a Markdown file with the Copy / Download buttons.
 
 Change `ADMIN_PASSWORD` from the `changeme` default before exposing the app;
 the backend logs a warning on startup while the default is in place.

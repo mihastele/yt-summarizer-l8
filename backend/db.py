@@ -107,6 +107,22 @@ def add_summary(
             conn.close()
 
 
+def get_summaries_by_ids(ids: list[int]) -> list[dict[str, Any]]:
+    """Fetch specific versions, returned in the order the ids were given."""
+    if not ids:
+        return []
+    placeholders = ",".join("?" for _ in ids)
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            f"SELECT * FROM summaries WHERE id IN ({placeholders})", ids
+        ).fetchall()
+        by_id = {r["id"]: _row_to_dict(r) for r in rows}
+        return [by_id[i] for i in ids if i in by_id]
+    finally:
+        conn.close()
+
+
 def delete_summary(summary_id: int) -> bool:
     conn = _connect()
     try:

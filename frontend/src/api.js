@@ -64,3 +64,32 @@ export const login = (username, password) =>
 export const logout = () => api('/api/logout', { method: 'POST' });
 
 export const fetchMe = () => api('/api/me');
+
+export function fetchAdminSummaries({ q = '', length = '', video_id = '', limit = 50, offset = 0 } = {}) {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  if (q) params.set('q', q);
+  if (length) params.set('length', length);
+  if (video_id) params.set('video_id', video_id);
+  return api(`/api/admin/summaries?${params.toString()}`);
+}
+
+export async function exportSummariesBlob({ q = '', length = '', video_id = '', ids = '', limit = 10000 } = {}) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (q) params.set('q', q);
+  if (length) params.set('length', length);
+  if (video_id) params.set('video_id', video_id);
+  if (ids) params.set('ids', ids);
+  const res = await fetch(`/api/admin/export?${params.toString()}`, { headers: { ...authHeaders() } });
+  if (!res.ok) {
+    const text = await res.text();
+    let message = `Request failed (${res.status})`;
+    try {
+      const data = text ? JSON.parse(text) : null;
+      if (data && (data.detail || data.message)) message = data.detail || data.message;
+    } catch {
+      if (text) message = text;
+    }
+    throw new Error(typeof message === 'string' ? message : JSON.stringify(message));
+  }
+  return res.blob();
+}

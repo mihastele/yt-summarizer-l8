@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  deleteVersion, fetchConfig, fetchHistory, fetchMe, fetchVersions,
-  getAdminToken, login, logout, setAdminToken, summarize,
+  deleteVersion, exportSummariesBlob, fetchAdminSummaries, fetchConfig, fetchHistory,
+  fetchMe, fetchVersions, getAdminToken, login, logout, setAdminToken, summarize,
 } from './api.js';
 import { Markdown } from './markdown.jsx';
 
@@ -34,6 +34,243 @@ function videoIdFromUrl(url) {
   return m ? m[1] : null;
 }
 
+function summaryMarkdown(result, active) {
+  const title = result.title || result.video_id || 'Summary';
+  return `# ${title}\n\nSource: ${result.url}\n\n${(active.summary || '').trim()}\n`;
+}
+
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+  } finally {
+    ta.remove();
+  }
+}
+
+function Dashboard() {
+  const [q, setQ] = useState('');
+  const [length, setLength] = useState('');
+  const [videoId, setVideoId] = useState('');
+  const [items, setItems] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [selected, setSelected] = useState(() => new Set());
+
+  const runSearch = useCallback(async (offset, append) => {
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const data = await fetchAdminSummaries({
+        q: q.trim(), length, video_id: videoId.trim(), limit: 50, offset,
+      });
+      setItems((prev) => (append ? [...prev, ...(data.items || [])] : data.items || []));
+      setTotal(data.total || 0);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }, [q, length, videoId]);
+
+  useEffect(() => {
+    runSearch(0, false);
+  }, []); // eslint-disable-line — initial load only; later searches run on submit
+
+  const toggle = useCallback((id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const allShown = items.length > 0 && items.every((item) => selected.has(item.id));
+  const toggleShown = useCallback(() => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allShown) items.forEach((item) => next.delete(item.id));
+      else items.forEach((item) => next.add(item.id));
+      return next;
+    });
+  }, [allShown, items]);
+
+  const doExport = useCallback(async (mode) => {
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const blob = mode === 'selected'
+        ? await exportSummariesBlob({ ids: [...selected].join(',') })
+        : await exportSummariesBlob({ q: q.trim(), length, video_id: videoId.trim() });
+      const count = mode === 'selected' ? selected.size : total;
+      const stamp = new Date().toISOString().slice(0, 10);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `recap-export-${stamp}-${count}.md`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      setMessage(`Exported ${count} ${count === 1 ? 'summary' : 'summaries'} to a Markdown file.`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }, [length, q, selected, total, videoId]);
+
+  return (
+    <section className="primary">
+      <h1 className="display">Dashboard.</h1>
+      <p className="lede">
+        Search every stored summary and export all or a subset into one delimited Markdown file.
+      </p>
+
+      <form
+        className="composer"
+        onSubmit={(e) => {
+          e.preventDefault();
+          runSearch(0, false);
+        }}
+      >
+        <div className="dash-fields">
+          <input
+            className="url-input"
+            type="search"
+            placeholder="Search title, link, video id, text…"
+            aria-label="Search summaries"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <select
+            className="history-filter dash-select"
+            aria-label="Filter by depth"
+            value={length}
+            onChange={(e) => setLength(e.target.value)}
+          >
+            <option value="">All depths</option>
+            <option value="quick">Quick</option>
+            <option value="medium">Mid-length</option>
+            <option value="long">Long</option>
+            <option value="extended">Extended</option>
+          </select>
+          <input
+            className="url-input"
+            placeholder="Video id (optional)"
+            aria-label="Filter by video id"
+            value={videoId}
+            onChange={(e) => setVideoId(e.target.value)}
+            spellCheck={false}
+          />
+        </div>
+        <div className="dash-actions">
+          <button type="submit" className="btn primary" disabled={busy}>
+            {busy ? 'Searching…' : 'Search'}
+          </button>
+          <button
+            type="button"
+            className="btn ghost"
+            disabled={busy}
+            onClick={() => {
+              setQ('');
+              setLength('');
+              setVideoId('');
+            }}
+          >
+            Clear
+          </button>
+        </div>
+      </form>
+
+      {error && (
+        <div className="alert error" role="alert">
+          <span className="alert-title">Something went wrong</span>
+          <span>{error}</span>
+        </div>
+      )}
+      {message && !error && <div className="alert info" role="status">{message}</div>}
+
+      <div className="sheet dash-results">
+        <div className="dash-bar">
+          <label className="dash-select-all">
+            <input type="checkbox" checked={allShown} onChange={toggleShown} />
+            Select shown
+          </label>
+          <span className="dash-counts">
+            {selected.size} selected · {items.length} of {total} shown
+          </span>
+        </div>
+        {items.length === 0 ? (
+          <p className="dim small">{busy ? 'Searching…' : 'No summaries match this search.'}</p>
+        ) : (
+          <ol className="dash-list">
+            {items.map((item) => (
+              <li key={item.id}>
+                <label className="dash-row">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(item.id)}
+                    onChange={() => toggle(item.id)}
+                  />
+                  <span className="dash-row-text">
+                    <span className="dash-row-title">{item.title || item.video_id || item.url}</span>
+                    <span className="dash-row-meta">
+                      {lengthLabel(item.length)} · {formatDate(item.created_at)} · {item.video_id}
+                    </span>
+                  </span>
+                </label>
+              </li>
+            ))}
+          </ol>
+        )}
+        {items.length < total && (
+          <button
+            type="button"
+            className="btn ghost dash-load"
+            disabled={busy}
+            onClick={() => runSearch(items.length, true)}
+          >
+            {busy ? 'Loading…' : `Load more (${total - items.length} remaining)`}
+          </button>
+        )}
+      </div>
+
+      <div className="dash-export">
+        <button
+          type="button"
+          className="btn primary"
+          disabled={busy || selected.size === 0}
+          onClick={() => doExport('selected')}
+        >
+          Export selected ({selected.size})
+        </button>
+        <button
+          type="button"
+          className="btn ghost"
+          disabled={busy || total === 0}
+          onClick={() => doExport('all')}
+        >
+          Export all matching ({total})
+        </button>
+      </div>
+    </section>
+  );
+}
+
 export default function App() {
   const [url, setUrl] = useState('');
   const [length, setLength] = useState('medium');
@@ -53,6 +290,7 @@ export default function App() {
   const [loginError, setLoginError] = useState('');
   const [histQuery, setHistQuery] = useState('');
   const [histLength, setHistLength] = useState('');
+  const [view, setView] = useState('home');
 
   const isAdminRef = useRef(isAdmin);
   isAdminRef.current = isAdmin;
@@ -194,6 +432,7 @@ export default function App() {
     setAdminUser('');
     setHistQuery('');
     setHistLength('');
+    setView('home');
     setNotice('Logged out.');
     refreshHistory({ isAdmin: false, q: '', len: '' });
   }, [refreshHistory]);
@@ -214,6 +453,31 @@ export default function App() {
 
   const active = result?.summaries?.find((s) => s.id === activeId) || result?.summaries?.[0] || null;
   const thumb = result?.video_id ? `https://i.ytimg.com/vi/${result.video_id}/hqdefault.jpg` : null;
+
+  const copyActive = useCallback(async () => {
+    if (!active) return;
+    try {
+      await copyText(summaryMarkdown(result, active));
+      setNotice('Summary copied to clipboard.');
+    } catch {
+      setError('Could not copy to clipboard in this browser.');
+    }
+  }, [result, active]);
+
+  const downloadActive = useCallback(() => {
+    if (!active) return;
+    const blob = new Blob([summaryMarkdown(result, active)], { type: 'text/markdown' });
+    const idx = result.summaries.findIndex((s) => s.id === active.id);
+    const ver = idx >= 0 ? result.summaries.length - idx : 1;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `recap-${result.video_id}-${result.length}-v${ver}.md`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    setNotice('Summary downloaded as Markdown.');
+  }, [result, active]);
 
   return (
     <div className="page">
@@ -246,6 +510,9 @@ export default function App() {
             {isAdmin ? (
               <>
                 <span className="admin-badge" title="Logged in">{adminUser || 'Logged in'}</span>
+                <button className="link-btn" onClick={() => setView((v) => (v === 'dash' ? 'home' : 'dash'))}>
+                  {view === 'dash' ? 'Summaries' : 'Dashboard'}
+                </button>
                 <button className="link-btn" onClick={doLogout}>Log out</button>
               </>
             ) : (
@@ -288,6 +555,11 @@ export default function App() {
         </div>
       )}
 
+      {view === 'dash' && isAdmin ? (
+        <main className="layout dashboard-layout">
+          <Dashboard />
+        </main>
+      ) : (
       <main className="layout">
         <section className="primary">
           <h1 className="display">Turn any video into a readable summary.</h1>
@@ -406,6 +678,16 @@ export default function App() {
                   >
                     {loading ? 'Regenerating…' : 'Regenerate'}
                   </button>
+                  {active && (
+                    <button className="btn ghost" onClick={copyActive} title="Copy this summary as Markdown">
+                      Copy
+                    </button>
+                  )}
+                  {active && (
+                    <button className="btn ghost" onClick={downloadActive} title="Download this summary as a Markdown file">
+                      Download
+                    </button>
+                  )}
                   {isAdmin && active && (
                     <button className="btn danger-ghost" onClick={removeActive} title="Delete this version">
                       Delete
@@ -474,6 +756,15 @@ export default function App() {
               </select>
             </div>
           )}
+          {isAdmin && (
+            <button
+              type="button"
+              className="btn ghost dash-toggle"
+              onClick={() => setView((v) => (v === 'dash' ? 'home' : 'dash'))}
+            >
+              {view === 'dash' ? 'Back to summaries' : 'Open dashboard'}
+            </button>
+          )}
           {history.length === 0 ? (
             <p className="dim small">
               {isAdmin && (histQuery || histLength)
@@ -503,6 +794,7 @@ export default function App() {
           </div>
         </aside>
       </main>
+      )}
 
       <div className="support-banner">
         <span className="support-text">
